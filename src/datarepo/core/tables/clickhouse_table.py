@@ -18,8 +18,6 @@ from datarepo.core.tables.metadata import (
     TableSchema,
 )
 from datarepo.core.tables.util import RoapiOptions
-from datarepo.core.tables.util import escape_like_pattern_for_sql
-from datarepo.core.tables.util import escape_str_for_sql
 from datarepo.core.tables.util import format_value_for_sql
 
 
@@ -291,9 +289,9 @@ class ClickHouseTable(TableProtocol):
                     elif f.operator == "is not null":
                         set_expressions.append(f"`{f.column}` IS NOT NULL")
                     elif f.operator == "contains":
-                        escaped = escape_like_pattern_for_sql(cast(str, f.value))
                         set_expressions.append(
-                            f"`{f.column}` LIKE '%{escaped}%' ESCAPE '\\'"
+                            f"positionUTF8(`{f.column}`, "
+                            f"{format_value_for_sql(f.value)}) > 0"
                         )
                     elif f.operator == "includes":
                         set_expressions.append(
