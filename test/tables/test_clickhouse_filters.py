@@ -117,10 +117,10 @@ def test_empty_group_alongside_nonempty_group_is_ignored(table):
         ("not in", [1, 2], "`x` NOT IN (1, 2)"),
         ("in", [], "`x` IN ()"),
         ("not in", [], "`x` NOT IN ()"),
-        ("contains", "%cat%", "`x` LIKE '%cat%'"),
-        ("includes", "%cat%", "`x` LIKE '%cat%'"),
-        ("includes any", "%cat%", "`x` LIKE '%cat%'"),
-        ("includes all", "%cat%", "`x` LIKE '%cat%'"),
+        ("contains", "cat", "`x` LIKE '%cat%'"),
+        ("includes", "cat", "has(`x`, 'cat')"),
+        ("includes any", ["cat", "dog"], "hasAny(`x`, ['cat', 'dog'])"),
+        ("includes all", ["cat", "dog"], "hasAll(`x`, ['cat', 'dog'])"),
     ],
 )
 def test_recognized_operator_behavior_is_unchanged(table, operator, value, expected):
@@ -133,3 +133,23 @@ def test_existing_invalid_column_behavior_is_unchanged(table):
     query = table._build_query([Filter("unknown", "=", 2)], columns=["unknown"])
     assert query.startswith("SELECT * FROM")
     assert where_clause(query) == "(`unknown` = 2)"
+
+
+def test_contains_escapes_quotes(table):
+    """A quote in the substring must not be able to break out of the LIKE literal."""
+    query = table._build_query([Filter("x", "contains", "o'brien")])
+    assert where_clause(query) == "(`x` LIKE '%o''brien%')"
+
+
+def test_includes_any_all_do_not_mangle_multiple_values(table):
+    """includes any/all build a proper array literal, not a comma-joined LIKE operand.
+
+    Regression test: the previous implementation routed contains/includes/includes
+    any/includes all through a single LIKE branch with no wildcard or array
+    handling, so passing a list of values produced invalid SQL like
+    "LIKE 'cat', 'dog'" instead of a real array-membership predicate.
+    """
+    any_query = table._build_query([Filter("x", "includes any", ["cat", "dog"])])
+    all_query = table._build_query([Filter("x", "includes all", ["cat", "dog"])])
+    assert where_clause(any_query) == "(hasAny(`x`, ['cat', 'dog']))"
+    assert where_clause(all_query) == "(hasAll(`x`, ['cat', 'dog']))"
