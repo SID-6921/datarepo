@@ -117,7 +117,7 @@ def test_empty_group_alongside_nonempty_group_is_ignored(table):
         ("not in", [1, 2], "`x` NOT IN (1, 2)"),
         ("in", [], "`x` IN ()"),
         ("not in", [], "`x` NOT IN ()"),
-        ("contains", "cat", "`x` LIKE '%cat%'"),
+        ("contains", "cat", "`x` LIKE '%cat%' ESCAPE '\\'"),
         ("includes", "cat", "has(`x`, 'cat')"),
         ("includes any", ["cat", "dog"], "hasAny(`x`, ['cat', 'dog'])"),
         ("includes all", ["cat", "dog"], "hasAll(`x`, ['cat', 'dog'])"),
@@ -138,7 +138,37 @@ def test_existing_invalid_column_behavior_is_unchanged(table):
 def test_contains_escapes_quotes(table):
     """A quote in the substring must not be able to break out of the LIKE literal."""
     query = table._build_query([Filter("x", "contains", "o'brien")])
-    assert where_clause(query) == "(`x` LIKE '%o''brien%')"
+    assert where_clause(query) == "(`x` LIKE '%o''brien%' ESCAPE '\\')"
+
+
+def test_contains_escapes_like_metacharacters(table):
+    """'%', '_', and the LIKE escape character itself must match literally.
+
+    Regression test: without escaping these, a contains value like "user_id"
+    would match "userXid" (any character for "_"), and a value containing a
+    real "%" or "\\" would be treated as LIKE pattern syntax instead of a
+    literal substring.
+    """
+    underscore_query = table._build_query([Filter("x", "contains", "user_id")])
+    assert where_clause(underscore_query) == "(`x` LIKE '%user\\_id%' ESCAPE '\\')"
+
+    percent_query = table._build_query([Filter("x", "contains", "50%")])
+    assert where_clause(percent_query) == "(`x` LIKE '%50\\%%' ESCAPE '\\')"
+
+    backslash_query = table._build_query([Filter("x", "contains", "a\\b")])
+    assert where_clause(backslash_query) == "(`x` LIKE '%a\\\\b%' ESCAPE '\\')"
+
+
+def test_includes_any_all_reject_non_list_values(table):
+    """A plain string must not silently iterate into per-character array elements.
+
+    Regression test: cast(list, f.value) is a no-op at runtime, so
+    Filter("x", "includes any", "cat") previously compiled to
+    hasAny(`x`, ['c', 'a', 't']) instead of being rejected.
+    """
+    for operator in ("includes any", "includes all"):
+        with pytest.raises(TypeError):
+            table._build_query([Filter("x", operator, "cat")])
 
 
 def test_includes_any_all_do_not_mangle_multiple_values(table):

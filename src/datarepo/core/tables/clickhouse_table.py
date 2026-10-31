@@ -18,6 +18,7 @@ from datarepo.core.tables.metadata import (
     TableSchema,
 )
 from datarepo.core.tables.util import RoapiOptions
+from datarepo.core.tables.util import escape_like_pattern_for_sql
 from datarepo.core.tables.util import escape_str_for_sql
 from datarepo.core.tables.util import format_value_for_sql
 
@@ -290,22 +291,23 @@ class ClickHouseTable(TableProtocol):
                     elif f.operator == "is not null":
                         set_expressions.append(f"`{f.column}` IS NOT NULL")
                     elif f.operator == "contains":
-                        escaped = escape_str_for_sql(cast(str, f.value))
+                        escaped = escape_like_pattern_for_sql(cast(str, f.value))
                         set_expressions.append(
-                            f"`{f.column}` LIKE '%{escaped}%'"
+                            f"`{f.column}` LIKE '%{escaped}%' ESCAPE '\\'"
                         )
                     elif f.operator == "includes":
                         set_expressions.append(
                             f"has(`{f.column}`, {format_value_for_sql(f.value)})"
                         )
                     elif f.operator in ["includes any", "includes all"]:
-                        values = ", ".join(
-                            format_value_for_sql(v) for v in cast(list, f.value)
-                        )
+                        if not isinstance(f.value, (list, tuple)):
+                            raise TypeError(
+                                f"Filter operator {f.operator!r} requires a list or "
+                                f"tuple value, got {type(f.value).__name__}"
+                            )
+                        values = ", ".join(format_value_for_sql(v) for v in f.value)
                         func = "hasAny" if f.operator == "includes any" else "hasAll"
-                        set_expressions.append(
-                            f"{func}(`{f.column}`, [{values}])"
-                        )
+                        set_expressions.append(f"{func}(`{f.column}`, [{values}])")
                     else:
                         raise ValueError(f"Unsupported filter operator: {f.operator!r}")
 

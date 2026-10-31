@@ -287,6 +287,19 @@ def escape_str_for_sql(value: str) -> str:
     return value.replace("'", "''")
 
 
+def escape_like_pattern_for_sql(value: str) -> str:
+    """Escape a string so it matches literally inside a SQL LIKE pattern.
+
+    LIKE treats '%', '_', and the backslash escape character as pattern
+    syntax; escape them first (so the value itself can't act as a wildcard)
+    and then escape SQL quotes for safe interpolation into a string
+    literal. Pair with an explicit ``ESCAPE '\\'`` clause on the LIKE
+    expression.
+    """
+    escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return escape_str_for_sql(escaped)
+
+
 def format_value_for_sql(value: Any) -> str:
     """Format a value for use in a SQL query.
 
